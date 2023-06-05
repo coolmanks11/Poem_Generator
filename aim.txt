@@ -1,0 +1,6 @@
+- The aim of this project is to create poem generator using lex bot.
+- The bot will get inputs (theme, number of lines, keyword) from the user and generate a poem based on the inputs. 
+- After inputs are given (lambda will be invoke by lex bot), the bot will generate a poem(using chatgpt api) and send it to the user 
+- The api is store in secretmanager and will be retrieved by lambda function
+- There will be two stacks, one for the lex bot, permission, lambda, role and the other for the s3 bucket and secretmanager.
+- Chatgpt api is store under api_key.json 

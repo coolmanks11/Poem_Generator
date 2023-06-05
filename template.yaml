@@ -1,0 +1,31 @@
+Parameters:
+  ApiKeyValue:
+    Type: String
+    Description: "API key value for my chatgpt3.5"
+    NoEcho: true
+Resources:
+  ApiKeySecret:
+    Type: "AWS::SecretsManager::Secret"
+    Properties:
+      Name: "APIKeySecret"
+      Description: "API key for my application"
+      SecretString:
+        !Sub
+          - |
+            {
+              "api_key": "${ApiKey}"
+            }
+          - ApiKey: !Ref ApiKeyValue
+  LambdaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: poem-generator-lambda
+Outputs:
+  LambdaBucketName:
+    Value: !Ref LambdaBucket
+    Description: Name of S3 bucket to store Lambda code
+  
+  
+
+
+

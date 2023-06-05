@@ -1,0 +1,213 @@
+  Resources:
+    BotRuntimeRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lexv2.amazonaws.com
+              Action:
+                - "sts:AssumeRole"
+        Path: "/"
+        Policies:
+          - PolicyName: LexRuntimeRolePolicy
+            PolicyDocument:
+              Version: 2012-10-17
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - "polly:SynthesizeSpeech"
+                    - "comprehend:DetectSentiment"
+                    - "lambda:InvokeFunction"
+                  Resource: "*"
+
+    PoemGeneratorBot:
+      DependsOn: BotRuntimeRole
+      Type: AWS::Lex::Bot
+      Properties:
+        Name: "PoemGeneratorBotWithCF"
+        RoleArn: !GetAtt BotRuntimeRole.Arn
+        DataPrivacy:
+          ChildDirected: false
+        IdleSessionTTLInSeconds: 300
+        AutoBuildBotLocales: false
+        BotLocales:
+          - LocaleId: "en_US"
+            Description: "Book a trip bot Locale"
+            NluConfidenceThreshold: 0.40
+            VoiceSettings:
+              VoiceId: "Ivy"
+            SlotTypes:
+              - Name: "PoemThemeType"
+                SlotTypeValues:
+                  - SampleValue:
+                      Value: love
+                  - SampleValue:
+                      Value: nature
+                  - SampleValue:
+                      Value: friendship
+                  - SampleValue:
+                      Value: sorrow
+                ValueSelectionSetting:
+                  ResolutionStrategy: ORIGINAL_VALUE
+              # - Name: "PoemStyleType"
+              #   SlotTypeValues:
+              #     - SampleValue:
+              #         Value: Haiku
+              #     - SampleValue:
+              #         Value: Sonnet
+              - Name: "PoemKeywordType"
+                SlotTypeValues:
+                  - SampleValue: 
+                      Value: Eternal
+                  - SampleValue:
+                      Value: Ocean waves
+                  - SampleValue:
+                      Value: Autumn leaves
+                ValueSelectionSetting:
+                  ResolutionStrategy: ORIGINAL_VALUE
+            Intents:
+              - Name: "GeneratePoemIntent"
+                FulfillmentCodeHook:
+                  Enabled: true
+                # DialogCodeHook:
+                #   Enabled: true
+                SampleUtterances:
+                  - Utterance: "i want to create poem"
+                SlotPriorities:
+                  - Priority: 1
+                    SlotName: Theme
+                  - Priority: 2
+                    SlotName: Lines
+                  - Priority: 3
+                    SlotName: Keyword
+                IntentConfirmationSetting:
+                  PromptSpecification:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Poem Information. Theme:{Theme}, Number of lines: {Lines}, Keyword: {Keyword} Is this correct?"
+                    MaxRetries: 3
+                    AllowInterrupt: false
+                  DeclinationResponse:
+                    MessageGroupsList:
+                      - Message:
+                          PlainTextMessage:
+                            Value: "Poem creation cancelled."
+                    AllowInterrupt: false
+                Slots:
+                  - Name: "Theme"
+                    SlotTypeName: "PoemThemeType"
+                    ValueElicitationSetting:
+                      SlotConstraint: "Required"
+                      PromptSpecification:
+                        MessageGroupsList:
+                          - Message:
+                              PlainTextMessage:
+                                Value: "What is the theme of your poem?(eg. love, nature, friendship, sorrow)"
+                        MaxRetries: 3
+                        AllowInterrupt: false
+                  - Name: "Lines"
+                    SlotTypeName: "AMAZON.Number"
+                    ValueElicitationSetting:
+                      SlotConstraint: "Required"
+                      PromptSpecification:
+                        MessageGroupsList:
+                          - Message:
+                              PlainTextMessage:
+                                Value: "How many lines do you want your poem to have?"
+                        MaxRetries: 3
+                        AllowInterrupt: false
+                  - Name: "Keyword"
+                    SlotTypeName: "PoemKeywordType"
+                    ValueElicitationSetting:
+                      SlotConstraint: "Required"
+                      PromptSpecification:
+                        MessageGroupsList:
+                          - Message:
+                              PlainTextMessage:
+                                Value: "What is the keyword of your poem?(eg. Eternal, Ocean waves, Autumn leaves)"
+                        MaxRetries: 3
+                        AllowInterrupt: false
+              - Name: "FallbackIntent"
+                FulfillmentCodeHook:
+                  Enabled: true
+                Description: "Default intent when no other intent matches"
+                ParentIntentSignature: "AMAZON.FallbackIntent"
+    BotVersion:
+      DependsOn: PoemGeneratorBot
+      Type: AWS::Lex::BotVersion
+      Properties:
+        BotId: !Ref PoemGeneratorBot
+        BotVersionLocaleSpecification:
+          - LocaleId: en_US
+            BotVersionLocaleDetails:
+              SourceBotVersion: DRAFT
+
+    FirstBotAliasWithCFN:
+      DependsOn: BotVersion
+      Type: AWS::Lex::BotAlias
+      Properties:
+        BotId: !Ref PoemGeneratorBot
+        BotAliasName: "PoemGeneratorVersion1Alias"
+        
+        # Remove BotAliasLocaleSettings if you aren't concerned with Lambda setup.
+        # If you are you can modify the LambdaArn below to get started.
+        BotAliasLocaleSettings:
+          - LocaleId: en_US
+            BotAliasLocaleSetting:
+              Enabled: true
+              CodeHookSpecification: 
+                LambdaCodeHook:
+                  CodeHookInterfaceVersion: "1.0"
+                  LambdaArn: !GetAtt PoemGeneratorLambdaFunction.Arn
+        BotVersion: !GetAtt BotVersion.BotVersion
+        SentimentAnalysisSettings:
+          DetectSentiment: true
+    
+    PoemGeneratorLambdaFunction:
+      Type: AWS::Lambda::Function
+      Properties:
+        FunctionName: poem-generator
+        Code:
+          S3Bucket: poem-generator-lambda
+          S3Key: poem-generator.zip
+        Handler: poem-generator.lambda_handler
+        Runtime: python3.9
+        Role: !GetAtt LambdaRole.Arn
+        Timeout: 5
+    LambdaRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: lambda-ex-role
+        AssumeRolePolicyDocument:
+          Statement:
+            - Action:
+              - sts:AssumeRole
+              Effect: Allow
+              Principal:
+                Service:
+                - lambda.amazonaws.com
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AWSLambdaExecute
+          - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+        Path: /
+
+    LambdaPermissionForLex:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref PoemGeneratorLambdaFunction
+        Action: lambda:InvokeFunction
+        Principal: lexv2.amazonaws.com
+        SourceArn: !GetAtt FirstBotAliasWithCFN.Arn
+  Outputs:  
+    BotArn:
+      Description: "The ARN of the bot."
+      Value: !GetAtt PoemGeneratorBot.Arn
+    BotAliasArn:
+      Description: "The ARN of the bot alias."
+      Value: !GetAtt FirstBotAliasWithCFN.Arn
+  
